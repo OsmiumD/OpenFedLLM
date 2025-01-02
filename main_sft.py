@@ -119,8 +119,8 @@ for round in tqdm(range(fed_args.num_rounds)):
     set_peft_model_state_dict(model, global_dict)   # Update global model
 
     # ===== Save the model =====
-    if not os.path.exists(script_args.output_dir):
-        os.makedirs(script_args.output_dir)
+    if not os.path.exists(os.path.join('./', script_args.output_dir)):
+        os.makedirs(os.path.join('./', script_args.output_dir))
 
     if (round+1) % fed_args.save_model_freq == 0:
         trainer.save_model(os.path.join(script_args.output_dir, f"checkpoint-{round+1}"))

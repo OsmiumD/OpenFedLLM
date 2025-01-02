@@ -1,7 +1,7 @@
 source setup.sh
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/wsl/lib
 CUDA_VISIBLE_DEVICES=1 python main_sft.py \
- --model_name_or_path "meta-llama/Llama-2-7b-hf" \
+ --model_name_or_path "$HOME/models/Llama-2-7b-hf" \
  --dataset_name "vicgalle/alpaca-gpt4" \
  --dataset_sample 20000 \
  --fed_alg "fedavg" \
