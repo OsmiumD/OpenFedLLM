@@ -36,4 +36,4 @@ CUDA_VISIBLE_DEVICES=$gpu python main_sft.py \
  --use_peft \
  --load_in_8bit \
  --output_dir $output_dir \
- --template "alpaca" \
+ --template "alpaca"

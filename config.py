@@ -31,6 +31,8 @@ class ScriptArguments:
     dataset_name: Optional[str] = field(
         default="lucasmccabe-lmi/CodeAlpaca-20k", metadata={"help": "the dataset name"}
     )
+    dataset_name2: Optional[str] = field(default="none", metadata={"help": "the dataset name2"})
+    dataset_name3: Optional[str] = field(default="none", metadata={"help": "the dataset name3"})
     log_with: Optional[str] = field(default="none", metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=2e-5, metadata={"help": "the learning rate"})    # vicuna and alpaca use 2e-5
     batch_size: Optional[int] = field(default=16, metadata={"help": "the batch size"})
