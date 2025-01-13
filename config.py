@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, asdict
-from typing import Optional
+from typing import Optional, List
 from transformers import HfArgumentParser, TrainingArguments, BitsAndBytesConfig
 from peft import LoraConfig
 import os
@@ -14,8 +14,9 @@ from datetime import datetime, timedelta
 class FedArguments:
     fed_alg: Optional[str] = field(default="fedavg", metadata={"help": "the algorithm to use"})
     num_rounds: Optional[int] = field(default=500, metadata={"help": "the number of rounds"})
-    num_clients: Optional[int] = field(default=2, metadata={"help": "the number of clients"})
+    num_clients_dataset: Optional[int] = field(default=2, metadata={"help": "the number of clients per dataset"})
     sample_clients: Optional[int] = field(default=2, metadata={"help": "the number of clients to sample"})
+    balance_sample: Optional[bool] = field(default=False, metadata={"help": "sample with average number of dataset"})
     split_strategy: Optional[str] = field(default="iid", metadata={"help": "the split strategy"})
     prox_mu: Optional[float] = field(default=0.01, metadata={"help": "the mu parameter of FedProx"})
     fedopt_tau: Optional[float] = field(default=1e-3, metadata={"help": "the tau parameter of FedAdagrad, FedYogi and FedAdam"})
@@ -26,20 +27,13 @@ class FedArguments:
 
 @dataclass
 class ScriptArguments:
-
     model_name_or_path: Optional[str] = field(default="meta-llama/Llama-2-7b-hf", metadata={"help": "the model name"})
-    dataset_name: Optional[str] = field(
-        default="lucasmccabe-lmi/CodeAlpaca-20k", metadata={"help": "the dataset name"}
-    )
-    dataset_name2: Optional[str] = field(default="none", metadata={"help": "the dataset name2"})
-    dataset_name3: Optional[str] = field(default="none", metadata={"help": "the dataset name3"})
+    dataset_names: Optional[List[str]] = field(default_factory=list,metadata={"help": "Dataset names for each dataset"})
     log_with: Optional[str] = field(default="none", metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=2e-5, metadata={"help": "the learning rate"})    # vicuna and alpaca use 2e-5
     batch_size: Optional[int] = field(default=16, metadata={"help": "the batch size"})
     seq_length: Optional[int] = field(default=512, metadata={"help": "Input sequence length"})
-    gradient_accumulation_steps: Optional[int] = field(
-        default=1, metadata={"help": "the number of gradient accumulation steps"}
-    )
+    gradient_accumulation_steps: Optional[int] = field(default=1, metadata={"help": "the number of gradient accumulation steps"})
     load_in_8bit: Optional[bool] = field(default=False, metadata={"help": "load the model in 8 bits precision"})
     load_in_4bit: Optional[bool] = field(default=False, metadata={"help": "load the model in 4 bits precision"})
     use_peft: Optional[bool] = field(default=False, metadata={"help": "Wether to use PEFT or not to train adapters"})
@@ -51,9 +45,7 @@ class ScriptArguments:
     use_auth_token: Optional[bool] = field(default=False, metadata={"help": "Use HF auth token to access the model"})   # token and use_auth_token cannot be used together
     num_train_epochs: Optional[int] = field(default=3, metadata={"help": "the number of training epochs"})
     max_steps: Optional[int] = field(default=10, metadata={"help": "the number of training steps"})
-    save_steps: Optional[int] = field(
-        default=1000, metadata={"help": "Number of updates steps before two checkpoint saves"}
-    )
+    save_steps: Optional[int] = field(default=1000, metadata={"help": "Number of updates steps before two checkpoint saves"})
     save_total_limit: Optional[int] = field(default=10, metadata={"help": "Limits total number of checkpoints."})
     push_to_hub: Optional[bool] = field(default=False, metadata={"help": "Push the model to HF Hub"})
     hub_model_id: Optional[str] = field(default=None, metadata={"help": "The name of the model on HF Hub"})
@@ -66,6 +58,13 @@ class ScriptArguments:
 
 parser = HfArgumentParser((ScriptArguments, FedArguments))
 script_args, fed_args = parser.parse_args_into_dataclasses()
+fed_args.num_datasets = len(script_args.dataset_names)
+fed_args.num_clients = fed_args.num_clients_dataset * len(script_args.dataset_names)
+script_args.dataset_name = ""
+for ds_name in script_args.dataset_names:
+    ds_name = os.path.basename(ds_name)
+    script_args.dataset_name += ds_name[:3] + '-'
+script_args.dataset_name = script_args.dataset_name[:-1]
 
 # ===== Define the LoraConfig =====
 if script_args.use_peft:
@@ -79,8 +78,10 @@ if script_args.use_peft:
 else:
     peft_config = None
 
+
 def get_config():
     return script_args, fed_args, peft_config
+
 
 # ===== Define the training arguments =====
 def get_training_args(script_args, new_lr):
@@ -101,6 +102,7 @@ def get_training_args(script_args, new_lr):
         lr_scheduler_type="constant",
     )
     return training_args
+
 
 def get_model_config(script_args):
     if script_args.load_in_8bit and script_args.load_in_4bit:
@@ -128,9 +130,10 @@ def get_model_config(script_args):
         torch_dtype = None
     return device_map, quantization_config, torch_dtype
 
+
 def save_config(script_args, fed_args):
     now_time = (datetime.now()).strftime("%Y%m%d%H%M%S")
-    dataset_name_split = os.path.basename(script_args.dataset_name)
+    dataset_name_split = script_args.dataset_name
     output_dir = f"{script_args.output_dir}/{dataset_name_split}_{script_args.dataset_sample}_{fed_args.fed_alg}_c{fed_args.num_clients}s{fed_args.sample_clients}_i{script_args.max_steps}_b{script_args.batch_size}a{script_args.gradient_accumulation_steps}_l{script_args.seq_length}_r{script_args.peft_lora_r}a{script_args.peft_lora_alpha}_{now_time}"
     while True:
         if not os.path.exists(output_dir):

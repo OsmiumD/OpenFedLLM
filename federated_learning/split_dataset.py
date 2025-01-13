@@ -5,8 +5,8 @@ def split_dataset(fed_args, script_args, dataset):
     dataset = dataset.shuffle(seed=script_args.seed)  # Shuffle the dataset
     local_datasets = []
     if fed_args.split_strategy == "iid":
-        for i in range(int(fed_args.num_clients)):
-            local_datasets.append(dataset.shard(int(fed_args.num_clients), i))
+        for i in range(int(fed_args.num_clients_dataset)):
+            local_datasets.append(dataset.shard(int(fed_args.num_clients_dataset), i))
 
     return local_datasets
 

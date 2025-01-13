@@ -1,5 +1,7 @@
 import copy
 import os
+import sys
+
 from tqdm import tqdm
 import numpy as np
 
@@ -18,18 +20,13 @@ save_config(script_args, fed_args)
 print(script_args, fed_args)
 
 # ===== Load the dataset =====
-dataset1 = get_dataset(script_args.dataset_name, script_args.local_data_dir)
-# dataset2 = get_dataset(script_args.dataset_name2, script_args.local_data_dir)
-# dataset3 = get_dataset(script_args.dataset_name3, script_args.local_data_dir)
-dataset1 = process_sft_dataset(script_args.dataset_name, dataset1, script_args.dataset_sample)
-# dataset2 = process_sft_dataset(script_args.dataset_name2, dataset2, script_args.dataset_sample)
-# dataset3 = process_sft_dataset(script_args.dataset_name3, dataset3, script_args.dataset_sample)
+if len(script_args.dataset_names) == 0:
+    print('no dataset specified, exiting.', file=sys.stderr)
+    exit(0)
+datasets = [process_sft_dataset(ds_name, get_dataset(ds_name, script_args.local_data_dir), script_args.dataset_sample)
+            for ds_name in script_args.dataset_names]
 # ===== Split the dataset into clients =====
-datasets_split1 = split_dataset(fed_args, script_args, dataset1)
-# datasets_split2 = split_dataset(fed_args, script_args, dataset1)
-# datasets_split3 = split_dataset(fed_args, script_args, dataset1)
-# local_datasets = datasets_split1 + datasets_split2 + datasets_split3
-local_datasets = datasets_split1
+local_datasets = [sp for ds in datasets for sp in split_dataset(fed_args, script_args, ds)]
 sample_num_list = [len(local_datasets[i]) for i in range(fed_args.num_clients)]
 
 # ===== Get model config =====
@@ -74,20 +71,16 @@ response_template_ids = tokenizer.encode(response_template, add_special_tokens=F
 data_collator = DataCollatorForCompletionOnlyLM(response_template_ids, tokenizer=tokenizer)
 
 # ===== Start federated training =====
-training_loss = [[] for i in range(fed_args.num_clients)]
+# training_loss = [[] for i in range(fed_args.num_clients)]
+training_loss = np.zeros((fed_args.num_clients, fed_args.num_rounds))
 
 for round in tqdm(range(fed_args.num_rounds)):
 
     clients_this_round = get_clients_this_round(fed_args, round)
-
+    training_loss[:, round] = -1
     print(f">> ==================== Round {round + 1} : {clients_this_round} ====================")
 
-    for client in range(fed_args.num_clients):
-
-        if client not in clients_this_round:
-            training_loss[client].append(-1)  # -1 is an indicator of not training
-            continue
-
+    for client in clients_this_round:
         set_peft_model_state_dict(model, global_dict)  # sync the global model to the local model
 
         sub_dataset = get_dataset_this_round(local_datasets[client], round, fed_args,
@@ -112,7 +105,7 @@ for round in tqdm(range(fed_args.num_rounds)):
         )
 
         results = trainer.train()
-        training_loss[client].append(results.training_loss)
+        training_loss[client, round] = results.training_loss
 
         # ===== Client transmits local information to server =====
         if fed_args.fed_alg == 'scaffold':
@@ -135,4 +128,4 @@ for round in tqdm(range(fed_args.num_rounds)):
     if (round + 1) % fed_args.save_model_freq == 0:
         trainer.save_model(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}"))
 
-    np.save(os.path.join(script_args.output_dir, "training_loss.npy"), np.array(training_loss))
+    np.save(os.path.join(script_args.output_dir, "training_loss.npy"), training_loss)
