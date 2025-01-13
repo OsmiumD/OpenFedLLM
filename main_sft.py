@@ -69,9 +69,15 @@ formatting_prompts_func, response_template = get_formatting_prompts_func(script_
 response_template_ids = tokenizer.encode(response_template, add_special_tokens=False)[
                         2:]  # Now we have it like in the dataset texts: `[2277, 29937, 4007, 22137, 29901]` for Llama2
 data_collator = DataCollatorForCompletionOnlyLM(response_template_ids, tokenizer=tokenizer)
+formatting_prompts_func_spec = []
+if len(script_args.template_dataset) == len(script_args.dataset_names):
+    print(' ==================== Using specified template for each dataset ==================== ')
+    for template_name in script_args.template_dataset:
+        format_spec, _ = get_formatting_prompts_func(template_name, tokenizer.eos_token)
+        formatting_prompts_func_spec.append(format_spec)
+    assert len(formatting_prompts_func_spec) == len(script_args.dataset_names)
 
 # ===== Start federated training =====
-# training_loss = [[] for i in range(fed_args.num_clients)]
 training_loss = np.zeros((fed_args.num_clients, fed_args.num_rounds))
 
 for round in tqdm(range(fed_args.num_rounds)):
@@ -88,6 +94,10 @@ for round in tqdm(range(fed_args.num_rounds)):
         new_lr = cosine_learning_rate(round, fed_args.num_rounds, script_args.learning_rate,
                                       1e-6)  # manually schedule the learning rate
         training_args = get_training_args(script_args, new_lr)
+        local_format_func = formatting_prompts_func
+        if len(formatting_prompts_func_spec) == len(script_args.dataset_names):
+            print(' ==================== Using specified template ==================== ')
+            local_format_func = formatting_prompts_func_spec[client // fed_args.num_clients_dataset]
 
         # ===== Train local model on the client side =====
         trainer = get_fed_local_sft_trainer(
@@ -95,7 +105,7 @@ for round in tqdm(range(fed_args.num_rounds)):
             tokenizer=tokenizer,
             training_args=training_args,
             local_dataset=sub_dataset,
-            formatting_prompts_func=formatting_prompts_func,
+            formatting_prompts_func=local_format_func,
             data_collator=data_collator,
             global_dict=global_dict,
             fed_args=fed_args,

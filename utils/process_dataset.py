@@ -68,34 +68,6 @@ def alpaca_format(example):
     example["response"] = example['output']
     return example
 
-
-def alpaca_format_math(example):
-    if example['input'] == "":
-        example["instruction"] = "this data from math client" + " " + example["instruction"]
-    else:
-        example["instruction"] = "this data from math client" + " " + example["instruction"] + " " + example['input']
-    example["response"] = example['output']
-    return example
-
-
-def alpaca_format_gpt(example):
-    if example['input'] == "":
-        example["instruction"] = "this data from gpt client" + " " + example["instruction"]
-    else:
-        example["instruction"] = "this data from gpt client" + " " + example["instruction"] + " " + example['input']
-    example["response"] = example['output']
-    return example
-
-
-def alpaca_format_code(example):
-    if example['input'] == "":
-        example["instruction"] = "this data from code client" + " " + example["instruction"]
-    else:
-        example["instruction"] = "this data from code client" + " " + example["instruction"] + " " + example['input']
-    example["response"] = example['output']
-    return example
-
-
 def process_dpo_dataset(dataset_name, dataset, template_name, dataset_sample):
     if dataset_name in ["Anthropic/hh-rlhf"]:
         dataset = dataset.map(partial(split_hh, template_name=template_name), load_from_cache_file=False)

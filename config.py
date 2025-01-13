@@ -51,6 +51,7 @@ class ScriptArguments:
     hub_model_id: Optional[str] = field(default=None, metadata={"help": "The name of the model on HF Hub"})
     gradient_checkpointing: Optional[bool] = field(default=True, metadata={"help": "Enable gradient checkpointing"})
     template: Optional[str] = field(default="alpaca", metadata={"help": "the template to use"})
+    template_dataset: Optional[List[str]] = field(default_factory=list,metadata={"help": "Specified template for each dataset"})
     seed: Optional[int] = field(default=2023, metadata={"help": "the seed to use"})
     dpo_beta: Optional[float] = field(default=0.1, metadata={"help": "the beta parameter of DPO"})
     dataset_sample: Optional[int] = field(default=20000, metadata={"help": "the number of samples to use from the dataset"})
