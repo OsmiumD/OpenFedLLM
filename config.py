@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field, asdict
 from typing import Optional, List
 from transformers import HfArgumentParser, TrainingArguments, BitsAndBytesConfig
-from peft import LoraConfig
+from peft import LoraConfig, PromptEncoderConfig
 import os
 import json
 from accelerate import Accelerator
@@ -56,6 +56,8 @@ class ScriptArguments:
     dpo_beta: Optional[float] = field(default=0.1, metadata={"help": "the beta parameter of DPO"})
     dataset_sample: Optional[int] = field(default=20000, metadata={"help": "the number of samples to use from the dataset"})
     local_data_dir: Optional[str] = field(default=None, metadata={"help": "the local data directory if you want to use downloaded data"})
+    use_soft_prompt: Optional[bool] = field(default=False, metadata={"help": "use soft prompt for each client"})
+    soft_prompt_size: Optional[int] = field(default=10, metadata={"help": "size of soft prompt"})
 
 parser = HfArgumentParser((ScriptArguments, FedArguments))
 script_args, fed_args = parser.parse_args_into_dataclasses()
