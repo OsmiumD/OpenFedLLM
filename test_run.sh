@@ -11,7 +11,7 @@ python main_sft_prompt.py \
  --num_rounds 100 \
  --batch_size 16 \
  --gradient_accumulation_steps 1 \
- --seq_length 512 \
+ --seq_length 1024 \
  --peft_lora_r 32 \
  --peft_lora_alpha 64 \
  --use_peft \

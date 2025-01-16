@@ -2,6 +2,7 @@ import copy
 import os
 import sys
 
+import torch
 from tqdm import tqdm
 import numpy as np
 
@@ -152,11 +153,17 @@ for round in tqdm(range(fed_args.num_rounds)):
         clients_this_round, round, proxy_dict=proxy_dict, \
         opt_proxy_dict=opt_proxy_dict, auxiliary_info=(global_auxiliary, auxiliary_delta_dict)
     )
-    set_peft_model_state_dict(model_combined, global_dict)  # Update global model
+    set_peft_model_state_dict(model_combined, global_dict, adapter_name='lora')  # Update global model
 
     # ===== Save the model =====
 
     if (round + 1) % fed_args.save_model_freq == 0:
         trainer.save_model(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}"))
+        if use_soft_prompt:
+            os.makedirs(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'soft-prompts'))
+            for soft_prompt, idx in enumerate(local_soft_prompt):
+                torch.save(soft_prompt, os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'soft-prompts', f'soft-prompt-{idx}.pt'))
+
+
 
     np.save(os.path.join(script_args.output_dir, "training_loss.npy"), training_loss)
