@@ -10,8 +10,8 @@ import json
 # parser.add_argument('--dataset', type=bool, default=False)
 # args = parser.parse_args()
 
-filename1 = 'alp-Mat-Cod_20000_fedavg_c6s3_i10_b16a1_l512_r32a64_20250114090906'
-filename2 = 'alp-Mat-Cod_20000_fedavg_c6s3_i10_b16a1_l512_r32a64_20250115081946'
+filename1 = 'alp-Mat-Cod_20000_fedavg_c3s3_i10_b16a1_l1024_r32a64_20250120112122'
+filename2 = 'alp-Mat-Cod_20000_fedavg_c3s3_i10_b16a1_l1024_r32a64_20250120131139'
 plot_dataset = True
 # 加载 training_loss.npy 文件
 training_loss1 = np.load(os.path.join('./output', filename1, 'training_loss.npy'))
@@ -19,10 +19,15 @@ training_loss2 = np.load(os.path.join('./output', filename2, 'training_loss.npy'
 epochs = training_loss1.shape[1]
 
 # load dataset client count
-ds_skip = 0
+ds_skip_1 = 0
 with open(os.path.join('./output', filename1, 'args.json')) as f_args:
     data = json.load(f_args)
-    ds_skip = data['fed_args']['num_clients_dataset']
+    ds_skip_1 = data['fed_args']['num_clients_dataset']
+
+ds_skip_2 = 0
+with open(os.path.join('./output', filename2, 'args.json')) as f_args:
+    data = json.load(f_args)
+    ds_skip_2 = data['fed_args']['num_clients_dataset']
 
 if not os.path.exists('./plots'):
     os.makedirs('./plots')
@@ -30,9 +35,9 @@ if not os.path.exists('./plots'):
 loss_lines1 = []
 loss_lines2 = []
 if plot_dataset:
-    for i in range(training_loss1.shape[0] // ds_skip):
-        loss_lines1.append(training_loss1[ds_skip * i:ds_skip * (i + 1)])
-        loss_lines2.append(training_loss2[ds_skip * i:ds_skip * (i + 1)])
+    for i in range(training_loss1.shape[0] // ds_skip_1):
+        loss_lines1.append(training_loss1[ds_skip_1 * i:ds_skip_1 * (i + 1)])
+        loss_lines2.append(training_loss2[ds_skip_2 * i:ds_skip_2 * (i + 1)])
 
 loss_lines1.append(training_loss1)
 loss_lines2.append(training_loss2)

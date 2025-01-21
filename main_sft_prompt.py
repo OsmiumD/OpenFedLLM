@@ -161,7 +161,7 @@ for round in tqdm(range(fed_args.num_rounds)):
         trainer.save_model(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}"))
         if use_soft_prompt:
             os.makedirs(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'soft-prompts'))
-            for soft_prompt, idx in enumerate(local_soft_prompt):
+            for idx, soft_prompt in enumerate(local_soft_prompt):
                 torch.save(soft_prompt, os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'soft-prompts', f'soft-prompt-{idx}.pt'))
 
 

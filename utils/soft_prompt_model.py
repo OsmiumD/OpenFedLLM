@@ -1,3 +1,6 @@
+import os
+from typing import Union, Optional, Any
+
 from peft import PeftConfig, PromptLearningConfig, TaskType, PeftType, PromptEmbedding, PromptEncoder, PrefixEncoder, \
     MODEL_TYPE_TO_PEFT_MODEL_MAPPING
 from peft.peft_model import PeftModelForCausalLM, PeftModel
@@ -71,9 +74,76 @@ class PeftModelAdditionPrompt(PeftModelForCausalLM):
             config.num_virtual_tokens * config.num_transformer_submodules
         ).long()
 
-def print_params(md):
-    for n, p in md.named_parameters():
-        print(n)
+    def from_pretrained(
+        cls,
+        model: PreTrainedModel,
+        model_id: Union[str, os.PathLike],
+        adapter_name: str = "default",
+        is_trainable: bool = False,
+        config: Optional[PeftConfig] = None,
+        **kwargs: Any,
+    ):
+        r"""
+        Instantiate a [`LoraModel`] from a pretrained Lora configuration and weights.
+
+        Args:
+            model ([`~transformers.PreTrainedModel`]):
+                The model to be adapted. The model should be initialized with the
+                [`~transformers.PreTrainedModel.from_pretrained`] method from the 🤗 Transformers library.
+            model_id (`str` or `os.PathLike`):
+                The name of the Lora configuration to use. Can be either:
+                    - A string, the `model id` of a Lora configuration hosted inside a model repo on the Hugging Face
+                      Hub.
+                    - A path to a directory containing a Lora configuration file saved using the `save_pretrained`
+                      method (`./my_lora_config_directory/`).
+            adapter_name (`str`, *optional*, defaults to `"default"`):
+                The name of the adapter to be loaded. This is useful for loading multiple adapters.
+            is_trainable (`bool`, *optional*, defaults to `False`):
+                Whether the adapter should be trainable or not. If `False`, the adapter will be frozen and use for
+                inference
+            config ([`~peft.PeftConfig`], *optional*):
+                The configuration object to use instead of an automatically loaded configuration. This configuration
+                object is mutually exclusive with `model_id` and `kwargs`. This is useful when configuration is already
+                loaded before calling `from_pretrained`.
+            kwargs: (`optional`):
+                Additional keyword arguments passed along to the specific Lora configuration class.
+        """
+        from .mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING, PEFT_TYPE_TO_CONFIG_MAPPING
+
+        # load the config
+        if config is None:
+            config = PEFT_TYPE_TO_CONFIG_MAPPING[
+                PeftConfig._get_peft_type(
+                    model_id,
+                    subfolder=kwargs.get("subfolder", None),
+                    revision=kwargs.get("revision", None),
+                    cache_dir=kwargs.get("cache_dir", None),
+                    use_auth_token=kwargs.get("use_auth_token", None),
+                )
+            ].from_pretrained(model_id, **kwargs)
+        elif isinstance(config, PeftConfig):
+            config.inference_mode = not is_trainable
+        else:
+            raise ValueError(f"The input config must be a PeftConfig, got {config.__class__}")
+
+        if (getattr(model, "hf_device_map", None) is not None) and len(
+            set(model.hf_device_map.values()).intersection({"cpu", "disk"})
+        ) > 0:
+            remove_hook_from_submodules(model)
+
+        if isinstance(config, PromptLearningConfig) and is_trainable:
+            raise ValueError("Cannot set a prompt learning adapter to trainable when loading pretrained adapter.")
+        else:
+            config.inference_mode = not is_trainable
+
+        if config.task_type not in MODEL_TYPE_TO_PEFT_MODEL_MAPPING.keys():
+            model = cls(model, config, adapter_name)
+        else:
+            model = MODEL_TYPE_TO_PEFT_MODEL_MAPPING[config.task_type](model, config, adapter_name)
+        model.load_adapter(model_id, adapter_name, is_trainable=is_trainable, **kwargs)
+        return model
+
+
 
 def get_addition_prompt_module(model: PreTrainedModel, peft_config: PeftConfig, adapter_name: str = "default") -> PeftModelAdditionPrompt:
     """
