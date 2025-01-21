@@ -19,3 +19,7 @@ def get_dataset_this_round(dataset, round, fed_args, script_args):
     dataset_this_round = dataset.select(random_idx)
 
     return dataset_this_round
+
+
+def get_dataset_stage_one(dataset, round, fed_args, script_args):
+    pass

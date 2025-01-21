@@ -56,5 +56,3 @@ plt.savefig(f'./plots/{filename}{"_dataset" if plot_dataset else ""}_training_lo
 
 # 如果不需要显示图表，可以注释掉以下行
 # plt.show()
-
-# num_clients_dataset

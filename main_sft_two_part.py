@@ -13,7 +13,7 @@ from peft import get_peft_model, get_peft_model_state_dict, set_peft_model_state
 
 from utils import *
 from federated_learning import *
-from config import get_config, save_config, get_model_config, get_training_args, get_stage_training_args
+from config import get_config, save_config, get_model_config, get_training_args, get_client_peft_config
 
 
 # ===== Define the arguments =====
@@ -23,7 +23,7 @@ save_config(script_args, fed_args)
 print(script_args, fed_args)
 if not os.path.exists(os.path.join('./', script_args.output_dir)):
     os.makedirs(os.path.join('./', script_args.output_dir))
-use_soft_prompt = script_args.use_client_model
+use_client_model = script_args.use_client_model
 
 # ===== Load the dataset =====
 if len(script_args.dataset_names) == 0:
@@ -46,21 +46,22 @@ base_model = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch_dtype,
 )
 
-soft_prompt_config = PromptTuningConfig(
-    task_type="CAUSAL_LM",  # Task type: causal LM
-    num_virtual_tokens=script_args.soft_prompt_size,  # Number of learnable tokens to prepend
-    token_dim=base_model.config.hidden_size,  # Hidden size of the model
-)
-
 if script_args.load_in_8bit or script_args.load_in_4bit:
     base_model = prepare_model_for_kbit_training(
         base_model, use_gradient_checkpointing=training_args.gradient_checkpointing
     )
 
-model_combined = get_addition_prompt_module(base_model, peft_config, 'lora')
-if use_soft_prompt:
-    model_combined.add_soft_prompt_adapter('soft_prompt', soft_prompt_config)
+model_combined = get_peft_model(base_model, peft_config, 'global')
 model_combined.print_trainable_parameters()
+if use_client_model:
+    client_peft_config = get_client_peft_config()
+    model_combined.add_adapter('client_spec', client_peft_config)
+model_combined.print_trainable_parameters()
+
+for name, param in model_combined.named_parameters():
+    print(name)
+
+exit()
 
 model_combined.config.use_cache = False  # silence the warnings. Please re-enable for inference!
 
@@ -68,14 +69,14 @@ if training_args.gradient_checkpointing:
     model_combined.enable_input_require_grads()
 
 # ===== Define the global and local models =====
-global_dict = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='lora'))
+global_dict = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='global'))
 local_dict_list = [copy.deepcopy(global_dict) for i in range(fed_args.num_clients)]
 
-local_soft_prompt = []
-if use_soft_prompt:
-    print('>> ==================== Using soft prompt for each client ==================== ')
-    init_soft_prompt = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='soft_prompt'))
-    local_soft_prompt = [copy.deepcopy(init_soft_prompt) for i in range(fed_args.num_clients)]
+local_models = []
+if use_client_model:
+    print('>> ==================== Using client model for each client ==================== ')
+    init_model = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='client_spec'))
+    local_models = [copy.deepcopy(init_model) for i in range(fed_args.num_clients)]
 
 proxy_dict, opt_proxy_dict = get_proxy_dict(fed_args, global_dict)
 global_auxiliary, auxiliary_model_list, auxiliary_delta_dict = get_auxiliary_dict(fed_args, global_dict)
@@ -108,9 +109,9 @@ for round in tqdm(range(fed_args.num_rounds)):
     print(f">> ==================== Round {round + 1} : {clients_this_round} ====================")
 
     for client in clients_this_round:
-        set_peft_model_state_dict(model_combined, global_dict, 'lora')  # sync the global model to the local model
-        if use_soft_prompt:
-            set_peft_model_state_dict(model_combined, local_soft_prompt[client], 'soft_prompt')  # add client local soft prompt
+        set_peft_model_state_dict(model_combined, global_dict, 'global')  # sync the global model to the local model
+        if use_client_model:
+            set_peft_model_state_dict(model_combined, local_models[client], 'client_spec')  # add client local soft prompt
 
         sub_dataset = get_dataset_this_round(local_datasets[client], round, fed_args,
                                              script_args)  # get the required sub-dataset for this round
@@ -144,9 +145,9 @@ for round in tqdm(range(fed_args.num_rounds)):
         if fed_args.fed_alg == 'scaffold':
             auxiliary_model_list[client], auxiliary_delta_dict[client] = trainer.get_auxiliary_param()
 
-        local_dict_list[client] = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='lora'))  # copy is needed!
-        if use_soft_prompt:
-            local_soft_prompt[client] = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='soft_prompt'))
+        local_dict_list[client] = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='global'))  # copy is needed!
+        if use_client_model:
+            local_models[client] = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='client_spec'))
 
     # ===== Server aggregates the local models =====
     global_dict, global_auxiliary = global_aggregate(
@@ -154,16 +155,16 @@ for round in tqdm(range(fed_args.num_rounds)):
         clients_this_round, round, proxy_dict=proxy_dict, \
         opt_proxy_dict=opt_proxy_dict, auxiliary_info=(global_auxiliary, auxiliary_delta_dict)
     )
-    set_peft_model_state_dict(model_combined, global_dict, adapter_name='lora')  # Update global model
+    set_peft_model_state_dict(model_combined, global_dict, adapter_name='global')  # Update global model
 
     # ===== Save the model =====
 
     if (round + 1) % fed_args.save_model_freq == 0:
         trainer.save_model(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}"))
-        if use_soft_prompt:
-            os.makedirs(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'soft-prompts'))
-            for idx, soft_prompt in enumerate(local_soft_prompt):
-                torch.save(soft_prompt, os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'soft-prompts', f'soft-prompt-{idx}.pt'))
+        if use_client_model:
+            os.makedirs(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'clients'))
+            for idx, soft_prompt in enumerate(local_models):
+                torch.save(soft_prompt, os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'clients', f'soft-prompt-{idx}.pt'))
 
 
 

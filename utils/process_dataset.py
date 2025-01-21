@@ -1,3 +1,5 @@
+import os.path
+
 import datasets
 from datasets import load_dataset
 import pandas as pd
@@ -7,16 +9,16 @@ from functools import partial
 
 def get_dataset(dataset_name, local_data_dir=None):
     if dataset_name in ["gsm8k"]:
-        dataset_name = local_data_dir + dataset_name if local_data_dir is not None else dataset_name
+        dataset_name = str(os.path.join(local_data_dir, dataset_name)) if local_data_dir is not None else dataset_name
         dataset = load_dataset(dataset_name, name="main")
     elif dataset_name in ["lighteval/MATH"]:
-        dataset_name = local_data_dir + dataset_name if local_data_dir is not None else dataset_name
+        dataset_name = str(os.path.join(local_data_dir, dataset_name)) if local_data_dir is not None else dataset_name
         dataset = load_dataset(dataset_name, split="train", name="all")
     elif dataset_name == "HuggingFaceH4/ultrafeedback_binarized":
-        dataset_name = local_data_dir + dataset_name if local_data_dir is not None else dataset_name
+        dataset_name = str(os.path.join(local_data_dir, dataset_name)) if local_data_dir is not None else dataset_name
         dataset = load_dataset(dataset_name, split="train_sft")
     else:
-        dataset_name = local_data_dir + dataset_name if local_data_dir is not None else dataset_name
+        dataset_name = str(os.path.join(local_data_dir, dataset_name)) if local_data_dir is not None else dataset_name
         dataset = load_dataset(dataset_name, split="train", cache_dir='./new_cache_dir')
 
     return dataset

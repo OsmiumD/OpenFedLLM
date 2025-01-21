@@ -2,7 +2,8 @@ source env_setup.sh
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/wsl/lib
 python main_sft_prompt.py \
  --model_name_or_path "$MODELS_HOME/TinyLlama_v1.1" \
- --dataset_names "vicgalle/alpaca-gpt4" "TIGER-Lab/MathInstruct" "sahil2801/CodeAlpaca-20k"\
+ --local_data_dir "$DATASETS_HOME" \
+ --dataset_names "alpaca-gpt4" "MathInstruct" "CodeAlpaca-20k"\
  --dataset_sample 20000 \
  --fed_alg "fedavg" \
  --num_clients_dataset 2 \

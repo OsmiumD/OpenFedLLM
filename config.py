@@ -45,6 +45,7 @@ class ScriptArguments:
     use_auth_token: Optional[bool] = field(default=False, metadata={"help": "Use HF auth token to access the model"})   # token and use_auth_token cannot be used together
     num_train_epochs: Optional[int] = field(default=3, metadata={"help": "the number of training epochs"})
     max_steps: Optional[int] = field(default=10, metadata={"help": "the number of training steps"})
+    stage_one_steps: Optional[int] = field(default=100, metadata={"help": "the number of stage_one steps"})
     save_steps: Optional[int] = field(default=1000, metadata={"help": "Number of updates steps before two checkpoint saves"})
     save_total_limit: Optional[int] = field(default=10, metadata={"help": "Limits total number of checkpoints."})
     push_to_hub: Optional[bool] = field(default=False, metadata={"help": "Push the model to HF Hub"})
@@ -56,8 +57,10 @@ class ScriptArguments:
     dpo_beta: Optional[float] = field(default=0.1, metadata={"help": "the beta parameter of DPO"})
     dataset_sample: Optional[int] = field(default=20000, metadata={"help": "the number of samples to use from the dataset"})
     local_data_dir: Optional[str] = field(default=None, metadata={"help": "the local data directory if you want to use downloaded data"})
-    use_soft_prompt: Optional[bool] = field(default=False, metadata={"help": "use soft prompt for each client"})
-    soft_prompt_size: Optional[int] = field(default=10, metadata={"help": "size of soft prompt"})
+    use_client_model: Optional[bool] = field(default=False, metadata={"help": "use soft prompt for each client"})
+    soft_prompt_size: Optional[int] = field(default=20, metadata={"help": "size of soft prompt"})
+    client_lora_r: Optional[int] = field(default=8, metadata={"help": "the r parameter of the LoRA adapters"})
+    client_lora_alpha: Optional[int] = field(default=16, metadata={"help": "the alpha parameter of the LoRA adapters"})
 
 parser = HfArgumentParser((ScriptArguments, FedArguments))
 script_args, fed_args = parser.parse_args_into_dataclasses()
@@ -78,12 +81,23 @@ if script_args.use_peft:
         bias="none",
         task_type="CAUSAL_LM",
     )
+    client_peft_config = LoraConfig(
+        r=script_args.client_lora_r,
+        lora_alpha=script_args.client_lora_alpha,
+        lora_dropout=0.05,
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
 else:
     peft_config = None
+    client_peft_config = None
 
 
 def get_config():
     return script_args, fed_args, peft_config
+
+def get_client_peft_config():
+    return client_peft_config
 
 
 # ===== Define the training arguments =====
@@ -96,6 +110,25 @@ def get_training_args(script_args, new_lr):
         logging_steps=script_args.logging_steps,
         num_train_epochs=script_args.num_train_epochs,
         max_steps=script_args.max_steps,
+        report_to=script_args.log_with,
+        save_steps=script_args.save_steps,
+        save_total_limit=script_args.save_total_limit,
+        push_to_hub=script_args.push_to_hub,
+        hub_model_id=script_args.hub_model_id,
+        gradient_checkpointing=script_args.gradient_checkpointing,
+        lr_scheduler_type="constant",
+    )
+    return training_args
+
+def get_stage_training_args(script_args, new_lr):
+    training_args = TrainingArguments(
+        output_dir=script_args.output_dir,
+        per_device_train_batch_size=script_args.batch_size,
+        gradient_accumulation_steps=script_args.gradient_accumulation_steps,
+        learning_rate=new_lr,
+        logging_steps=1,
+        num_train_epochs=script_args.num_train_epochs,
+        max_steps=script_args.stage_one_steps,
         report_to=script_args.log_with,
         save_steps=script_args.save_steps,
         save_total_limit=script_args.save_total_limit,
