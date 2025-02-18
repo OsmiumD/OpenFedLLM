@@ -10,8 +10,10 @@ import json
 # parser.add_argument('--dataset', type=bool, default=False)
 # args = parser.parse_args()
 
-filename1 = 'alp-Mat-Cod_20000_fedavg_c3s3_i10_b16a1_l1024_r32a64_20250120112122'
-filename2 = 'alp-Mat-Cod_20000_fedavg_c3s3_i10_b16a1_l1024_r32a64_20250120131139'
+filename1 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250217202543'   # One Stage
+# filename1 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250217170650'   # Freeze Prompt
+# filename1 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250212135150'  # No Freeze
+filename2 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250213070040'
 plot_dataset = True
 # 加载 training_loss.npy 文件
 training_loss1 = np.load(os.path.join('./output', filename1, 'training_loss.npy'))

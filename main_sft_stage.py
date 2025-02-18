@@ -13,7 +13,8 @@ from peft import get_peft_model, get_peft_model_state_dict, set_peft_model_state
 
 from utils import *
 from federated_learning import *
-from config import get_config, save_config, get_model_config, get_training_args, get_stage_training_args
+from config import get_config, save_config, get_model_config, get_training_args, get_stage_training_args, \
+    get_client_peft_config
 from utils.freeze_adapter import unfreeze_adapter
 
 # ===== Define the arguments =====
@@ -23,7 +24,8 @@ save_config(script_args, fed_args)
 print(script_args, fed_args)
 if not os.path.exists(os.path.join('./', script_args.output_dir)):
     os.makedirs(os.path.join('./', script_args.output_dir))
-use_soft_prompt = script_args.use_client_model
+use_client_model = script_args.use_client_model
+torch.set_autocast_gpu_dtype(torch.bfloat16)
 
 # ===== Load the dataset =====
 if len(script_args.dataset_names) == 0:
@@ -38,52 +40,18 @@ sample_num_list = [len(local_datasets[i]) for i in range(fed_args.num_clients)]
 # ===== Get model config =====
 device_map, quantization_config, torch_dtype = get_model_config(script_args)
 
-base_model = AutoModelForCausalLM.from_pretrained(
-    script_args.model_name_or_path,
-    quantization_config=quantization_config,
-    device_map=device_map,
-    trust_remote_code=script_args.trust_remote_code,
-    torch_dtype=torch_dtype,
-)
-
-base_model_copy = copy.deepcopy(base_model)
-
-soft_prompt_config = PromptTuningConfig(
-    task_type="CAUSAL_LM",  # Task type: causal LM
-    num_virtual_tokens=script_args.soft_prompt_size,  # Number of learnable tokens to prepend
-)
-
-if script_args.load_in_8bit or script_args.load_in_4bit:
-    base_model = prepare_model_for_kbit_training(
-        base_model, use_gradient_checkpointing=training_args.gradient_checkpointing
+if script_args.client_model_type == 'soft-prompt':
+    client_side_config = PromptTuningConfig(
+        task_type="CAUSAL_LM",  # Task type: causal LM
+        num_virtual_tokens=script_args.soft_prompt_size,  # Number of learnable tokens to prepend
     )
+elif script_args.client_model_type == 'lora':
+    client_side_config = get_client_peft_config()
+else:
+    print('Unrecognized client model type.', file=sys.stderr)
+    exit(0)
 
-model_combined = get_addition_prompt_module(base_model, peft_config, 'global')
-if use_soft_prompt:
-    model_combined.add_soft_prompt_adapter('client_specific', soft_prompt_config)
-model_combined.print_trainable_parameters()
-
-model_soft_prompt = get_peft_model(base_model_copy, soft_prompt_config, 'client_specific')
-
-
-model_combined.config.use_cache = False  # silence the warnings. Please re-enable for inference!
-model_soft_prompt.config.use_cache = False
-
-if training_args.gradient_checkpointing:
-    model_combined.enable_input_require_grads()
-
-# ===== Define the global and local models =====
-global_dict = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='global'))
-local_dict_list = [copy.deepcopy(global_dict) for i in range(fed_args.num_clients)]
-
-local_soft_prompt = []
-if use_soft_prompt:
-    print('>> ==================== Using soft prompt for each client ==================== ')
-    init_soft_prompt = copy.deepcopy(get_peft_model_state_dict(model_soft_prompt, adapter_name='client_specific'))
-    local_soft_prompt = [copy.deepcopy(init_soft_prompt) for i in range(fed_args.num_clients)]
-
-proxy_dict, opt_proxy_dict = get_proxy_dict(fed_args, global_dict)
-global_auxiliary, auxiliary_model_list, auxiliary_delta_dict = get_auxiliary_dict(fed_args, global_dict)
+local_model_dict = []
 
 # ===== Define the tokenizer =====
 tokenizer = AutoTokenizer.from_pretrained(script_args.model_name_or_path, use_fast=False, padding_side="right")
@@ -103,33 +71,99 @@ if len(script_args.template_dataset) == len(script_args.dataset_names):
         formatting_prompts_func_spec.append(format_spec)
     assert len(formatting_prompts_func_spec) == len(script_args.dataset_names)
 
-# ===== Training soft prompts for each client before global training =====
-if use_soft_prompt:
-    for name, param in model_soft_prompt.named_parameters():
-        if param.requires_grad:
-            print(name, param.size())
-    model_soft_prompt.print_trainable_parameters()
-    for client in range(fed_args.num_clients):
-        print('>> ==================== Client', client, '======================= ')
-        set_peft_model_state_dict(model_soft_prompt, local_soft_prompt[client], 'client_specific')
-        training_args = get_stage_training_args(script_args)
-
-        # ===== Train local model on the client side =====
-        trainer = SFTTrainer(
-            model=model_soft_prompt,
-            tokenizer=tokenizer,
-            args=training_args,
-            max_seq_length=script_args.seq_length,
-            train_dataset=local_datasets[client],
-            formatting_func=formatting_prompts_func,
-            data_collator=data_collator,
+# ===== Training client model for each client before global training =====
+if use_client_model:
+    if script_args.stage_one_ckpt:
+        print('>> ==================== Loading client checkpoints ======================= ')
+        for i in range(fed_args.num_clients):
+            local_model_dict.append(torch.load(os.path.join(script_args.stage_one_ckpt, f'client-{i}.pt'), map_location='cuda'))
+    elif script_args.two_stage_training:
+        model_stage_one = AutoModelForCausalLM.from_pretrained(
+            script_args.model_name_or_path,
+            quantization_config=quantization_config,
+            device_map=device_map,
+            trust_remote_code=script_args.trust_remote_code,
+            torch_dtype=torch_dtype,
         )
 
-        results = trainer.train()
-        local_soft_prompt[client] = copy.deepcopy(get_peft_model_state_dict(model_soft_prompt, adapter_name='client_specific'))
+        if script_args.load_in_8bit or script_args.load_in_4bit:
+            model_stage_one = prepare_model_for_kbit_training(
+                model_stage_one, use_gradient_checkpointing=training_args.gradient_checkpointing
+            )
+
+        model_stage_one = get_peft_model(model_stage_one, client_side_config, 'client_specific')
+        model_stage_one.config.use_cache = False
+        model_stage_one.enable_input_require_grads()
+
+        init_soft_prompt = copy.deepcopy(get_peft_model_state_dict(model_stage_one, adapter_name='client_specific'))
+        local_model_dict = [copy.deepcopy(init_soft_prompt) for i in range(fed_args.num_clients)]
+
+        for name, param in model_stage_one.named_parameters():
+            if param.requires_grad:
+                print(name, param.size())
+        os.makedirs(os.path.join(script_args.output_dir, f"before-fed"))
+        model_stage_one.print_trainable_parameters()
+        for client in range(fed_args.num_clients):
+            print('>> ==================== Client', client, '======================= ')
+            set_peft_model_state_dict(model_stage_one, local_model_dict[client], 'client_specific')
+            training_args = get_stage_training_args(script_args)
+            model_stage_one.print_trainable_parameters()
+            # ===== Train local model on the client side =====
+            trainer = SFTTrainer(
+                model=model_stage_one,
+                tokenizer=tokenizer,
+                args=training_args,
+                max_seq_length=script_args.seq_length,
+                train_dataset=local_datasets[client],
+                formatting_func=formatting_prompts_func,
+                data_collator=data_collator,
+            )
+
+            results = trainer.train()
+            local_model_dict[client] = copy.deepcopy(get_peft_model_state_dict(model_stage_one, adapter_name='client_specific'))
+
+            torch.save(local_model_dict[client], os.path.join(script_args.output_dir, f"before-fed", f'client-{client}.pt'))
+            print('>> ==================== Client', client, ' model saved ======================= ')
+
+model_combined = AutoModelForCausalLM.from_pretrained(
+    script_args.model_name_or_path,
+    quantization_config=quantization_config,
+    device_map=device_map,
+    trust_remote_code=script_args.trust_remote_code,
+    torch_dtype=torch_dtype,
+)
+
+if script_args.load_in_8bit or script_args.load_in_4bit:
+    model_combined = prepare_model_for_kbit_training(
+        model_combined, use_gradient_checkpointing=training_args.gradient_checkpointing
+    )
+
+model_combined = get_addition_prompt_module(model_combined, peft_config, 'global')
+if use_client_model:
+    if script_args.client_model_type == 'soft-prompt':
+        model_combined.add_soft_prompt_adapter('client_specific', client_side_config)
+    elif script_args.client_model_type == 'lora':
+        model_combined.add_adapter('client_specific', client_side_config)
+model_combined.print_trainable_parameters()
+model_combined.enable_input_require_grads()
+
+model_combined.config.use_cache = False  # silence the warnings. Please re-enable for inference!
+
+# ===== Define the global and local models =====
+global_dict = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='global'))
+local_dict_list = [copy.deepcopy(global_dict) for i in range(fed_args.num_clients)]
+
+proxy_dict, opt_proxy_dict = get_proxy_dict(fed_args, global_dict)
+global_auxiliary, auxiliary_model_list, auxiliary_delta_dict = get_auxiliary_dict(fed_args, global_dict)
+
+if len(local_model_dict) == 0 and use_client_model: # Use client model but still not initialized
+    init_soft_prompt = copy.deepcopy(get_peft_model_state_dict(model_combined, adapter_name='client_specific'))
+    local_model_dict = [copy.deepcopy(init_soft_prompt) for i in range(fed_args.num_clients)]
 
 # ===== Start federated training =====
-freeze_adapter(model_combined, 'client_specific')
+if script_args.freeze_stage_one:
+    print('>> ==================== Freezing stage one params ======================= ')
+    freeze_adapter(model_combined, 'client_specific')
 unfreeze_adapter(model_combined, 'global')
 model_combined.print_trainable_parameters()
 training_loss = np.zeros((fed_args.num_clients, fed_args.num_rounds))
@@ -141,8 +175,8 @@ for round in tqdm(range(fed_args.num_rounds)):
 
     for client in clients_this_round:
         set_peft_model_state_dict(model_combined, global_dict, 'global')  # sync the global model to the local model
-        if use_soft_prompt:
-            set_peft_model_state_dict(model_combined, local_soft_prompt[client], 'client_specific')  # add client local soft prompt
+        if use_client_model:
+            set_peft_model_state_dict(model_combined, local_model_dict[client], 'client_specific')  # add client local soft prompt
 
         sub_dataset = get_dataset_this_round(local_datasets[client], round, fed_args,
                                              script_args)  # get the required sub-dataset for this round
@@ -191,10 +225,10 @@ for round in tqdm(range(fed_args.num_rounds)):
 
     if (round + 1) % fed_args.save_model_freq == 0:
         trainer.save_model(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}"))
-        if use_soft_prompt:
+        if use_client_model:
             os.makedirs(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'clients'))
-            for idx, soft_prompt in enumerate(local_soft_prompt):
-                torch.save(soft_prompt, os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'clients', f'soft-prompt-{idx}.pt'))
+            for idx, local_dict in enumerate(local_model_dict):
+                torch.save(local_dict, os.path.join(script_args.output_dir, f"checkpoint-{round + 1}", 'clients', f'client-{idx}.pt'))
 
 
 

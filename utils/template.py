@@ -11,16 +11,16 @@ alpaca_template = """Below is an instruction that describes a task. Write a resp
 
 vicuna_template = """A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: {} ASSISTANT: {}{}"""
 
-alpaca_template_math = "This is a math task.\n" + alpaca_template
-alpaca_template_code = "This is a code task.\n" + alpaca_template
-alpaca_template_regular = "This is a regular language task.\n" + alpaca_template
+# alpaca_template_math = "This is a math task.\n" + alpaca_template
+# alpaca_template_code = "This is a code task.\n" + alpaca_template
+# alpaca_template_regular = "This is a regular language task.\n" + alpaca_template
 
 TEMPLATE_DICT = {
     'alpaca': (alpaca_template, '\n### Response:'),
     'vicuna': (vicuna_template, ' ASSISTANT:'),
-    'alpaca-math': (alpaca_template_math, '\n### Response:'),
-    'alpaca-code': (alpaca_template_code, '\n### Response:'),
-    'alpaca-regular': (alpaca_template_regular, '\n### Response:')
+    # 'alpaca-math': (alpaca_template_math, '\n### Response:'),
+    # 'alpaca-code': (alpaca_template_code, '\n### Response:'),
+    # 'alpaca-regular': (alpaca_template_regular, '\n### Response:')
 }
 
 

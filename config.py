@@ -58,9 +58,15 @@ class ScriptArguments:
     dataset_sample: Optional[int] = field(default=20000, metadata={"help": "the number of samples to use from the dataset"})
     local_data_dir: Optional[str] = field(default=None, metadata={"help": "the local data directory if you want to use downloaded data"})
     use_client_model: Optional[bool] = field(default=False, metadata={"help": "use soft prompt for each client"})
+    client_model_type: Optional[str] = field(default="soft-prompt", metadata={"help": "the model type for client"})
     soft_prompt_size: Optional[int] = field(default=20, metadata={"help": "size of soft prompt"})
     client_lora_r: Optional[int] = field(default=8, metadata={"help": "the r parameter of the LoRA adapters"})
     client_lora_alpha: Optional[int] = field(default=16, metadata={"help": "the alpha parameter of the LoRA adapters"})
+    stage_one_lr: Optional[float] = field(default=1e-3, metadata={"help": "the learning rate in stage one"})
+    stage_one_train: Optional[bool] = field(default=False, metadata={"help": "train stage one"})
+    freeze_stage_one: Optional[bool] = field(default=False, metadata={"help": "whether to freeze stage one"})
+    stage_one_ckpt: Optional[str] = field(default=None, metadata={"help": "whether to freeze stage one"})
+    two_stage_training: Optional[bool] = field(default=False, metadata={"help": "Run two stage training"})
 
 parser = HfArgumentParser((ScriptArguments, FedArguments))
 script_args, fed_args = parser.parse_args_into_dataclasses()
@@ -120,13 +126,13 @@ def get_training_args(script_args, new_lr):
     )
     return training_args
 
-def get_stage_training_args(script_args, new_lr):
+def get_stage_training_args(script_args):
     training_args = TrainingArguments(
         output_dir=script_args.output_dir,
         per_device_train_batch_size=script_args.batch_size,
         gradient_accumulation_steps=script_args.gradient_accumulation_steps,
-        learning_rate=new_lr,
-        logging_steps=1,
+        learning_rate=script_args.stage_one_lr,
+        logging_steps=10,
         num_train_epochs=script_args.num_train_epochs,
         max_steps=script_args.stage_one_steps,
         report_to=script_args.log_with,
@@ -161,9 +167,9 @@ def get_model_config(script_args):
         device_map = {"": Accelerator().local_process_index}
         torch_dtype = torch.bfloat16
     else:
-        device_map = None
+        device_map = {"": Accelerator().local_process_index}
         quantization_config = None
-        torch_dtype = None
+        torch_dtype = torch.bfloat16
     return device_map, quantization_config, torch_dtype
 
 
