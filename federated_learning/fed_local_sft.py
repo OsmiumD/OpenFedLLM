@@ -4,7 +4,7 @@ from trl import SFTTrainer
 from transformers import TrainerCallback
 from peft import get_peft_model_state_dict, set_peft_model_state_dict
 
-def get_fed_local_sft_trainer(script_args, fed_args, model, tokenizer, training_args, local_dataset, formatting_prompts_func, data_collator, global_dict, local_auxiliary, global_auxiliary):
+def get_fed_local_sft_trainer(script_args, fed_args, model, tokenizer, training_args, local_dataset, formatting_prompts_func, data_collator, global_dict, local_auxiliary, global_auxiliary, optimizers):
     
     if fed_args.fed_alg == 'fedprox':
         trainer = SFTTrainerFedProx(
@@ -17,6 +17,7 @@ def get_fed_local_sft_trainer(script_args, fed_args, model, tokenizer, training_
             data_collator=data_collator,
             global_state=global_dict,
             prox_mu=fed_args.prox_mu,
+            optimizers=optimizers
         )
     elif fed_args.fed_alg == 'scaffold':
         trainer = SFTTrainerSCAFFOLD(
@@ -30,6 +31,7 @@ def get_fed_local_sft_trainer(script_args, fed_args, model, tokenizer, training_
             global_state=global_dict,
             local_auxiliary=local_auxiliary,
             global_auxiliary=global_auxiliary,
+            optimizers=optimizers
         )
         trainer.add_callback(SCAFFOLD_Callback(trainer.correction, model))
     elif (fed_args.fed_alg in ['fedavg', 'fedavgm', 'fedadgrad', 'fedyogi', 'fedadam']) or (fed_args.fed_alg).startswith('local'):
@@ -41,6 +43,7 @@ def get_fed_local_sft_trainer(script_args, fed_args, model, tokenizer, training_
             train_dataset=local_dataset,
             formatting_func=formatting_prompts_func,
             data_collator=data_collator,
+            optimizers=optimizers
         )
     else:
         raise ValueError(f'Unsupported `fed_alg`: {fed_args.fed_alg}')

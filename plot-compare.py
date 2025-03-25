@@ -10,10 +10,33 @@ import json
 # parser.add_argument('--dataset', type=bool, default=False)
 # args = parser.parse_args()
 
-filename1 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250217202543'   # One Stage
+# mrqa-tinyllama
+filename1 = 'mrq-mrq-mrq-mrq-mrq-mrq_10000_fedavg_c6s3_i20_b8a2_l2048_r32a64_20250324184648'  #compare
+filename2 = 'mrq-mrq-mrq-mrq-mrq-mrq_10000_fedavg_c6s3_i20_b8a2_l2048_r32a64_20250324115623'  #no freeze
+
+
+#gsm8k-tinyllama
+# filename1 = 'gsm_500_fedavg_c6s3_i20_b16a1_l1024_r32a64_20250312081709'  #compare
+# filename2 = 'gsm_500_fedavg_c6s3_i20_b16a1_l1024_r32a64_20250312063630'  #no freeze
+
+# llama2-7b
+# filename1 = 'alp-Mat-Cod_20000_fedavg_c3s3_i20_b16a1_l1024_r32a64_20250306143857'  # compare
+# filename2 = 'alp-Mat-Cod_20000_fedavg_c3s3_i20_b16a1_l1024_r32a64_20250306224711'  # one_stage
+# filename2 = 'alp-Mat-Cod_20000_fedavg_c3s3_i20_b16a1_l1024_r32a64_20250307075907'  # no freeze
+# filename2 = 'alp-Mat-Cod_20000_fedavg_c3s3_i20_b16a1_l1024_r32a64_20250310124745'  # freeze
+
+
+
+# filename1 = 'alp-Mat-Cod_20000_fedavg_c3s3_i20_b16a1_l1024_r32a64_20250228182602' # compare
+# filename2 = 'alp-Mat-Cod_20000_fedavg_c3s3_i20_b16a1_l1024_r32a64_20250228152116' # use prompt
+
+# filename1 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250219055230'  # Same lr
+# filename2 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250227124303'  # New method
+
+# filename1 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250217202543'   # One Stage
 # filename1 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250217170650'   # Freeze Prompt
 # filename1 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250212135150'  # No Freeze
-filename2 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250213070040'
+# filename2 = 'alp-Mat-Cod_20000_fedyogi_c3s3_i10_b16a1_l1024_r32a64_20250213070040'
 plot_dataset = True
 # 加载 training_loss.npy 文件
 training_loss1 = np.load(os.path.join('./output', filename1, 'training_loss.npy'))

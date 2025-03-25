@@ -1,31 +1,34 @@
 import os.path
 
 import datasets
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk, DatasetDict
 import pandas as pd
 from .conversation import get_conv_template
 from functools import partial
 
 
-def get_dataset(dataset_name, local_data_dir=None):
-    if dataset_name in ["gsm8k"]:
-        dataset_name = str(os.path.join(local_data_dir, dataset_name)) if local_data_dir is not None else dataset_name
-        dataset = load_dataset(dataset_name, name="main")
+def get_dataset(dataset_name, local_data_dir=None, use_load_local=False):
+    dataset_name_full = str(os.path.join(local_data_dir, dataset_name)) if local_data_dir is not None else dataset_name
+    print(f'dataset: {dataset_name_full}')
+    if use_load_local:
+        dataset = load_from_disk(dataset_name_full)
+        if isinstance(dataset, DatasetDict):
+            dataset = dataset['train']
+    elif dataset_name in ["gsm8k"]:
+        dataset = load_dataset(dataset_name_full, split="train", cache_dir='./new_cache_dir', name='main')
     elif dataset_name in ["lighteval/MATH"]:
-        dataset_name = str(os.path.join(local_data_dir, dataset_name)) if local_data_dir is not None else dataset_name
-        dataset = load_dataset(dataset_name, split="train", name="all")
+        dataset = load_dataset(dataset_name_full, split="train", name="all")
     elif dataset_name == "HuggingFaceH4/ultrafeedback_binarized":
-        dataset_name = str(os.path.join(local_data_dir, dataset_name)) if local_data_dir is not None else dataset_name
-        dataset = load_dataset(dataset_name, split="train_sft")
+        dataset = load_dataset(dataset_name_full, split="train_sft")
     else:
-        dataset_name = str(os.path.join(local_data_dir, dataset_name)) if local_data_dir is not None else dataset_name
-        dataset = load_dataset(dataset_name, split="train", cache_dir='./new_cache_dir')
+        dataset = load_dataset(dataset_name_full, split="train", cache_dir='./new_cache_dir')
 
     return dataset
 
 
 def process_sft_dataset(dataset_name, dataset, dataset_sample):
-    if dataset_name in ["CodeAlpaca-20k", "sahil2801/CodeAlpaca-20k", "yahma/alpaca-cleaned", "FinGPT/fingpt-sentiment-train"]:
+    if dataset_name in ["CodeAlpaca-20k", "sahil2801/CodeAlpaca-20k", "yahma/alpaca-cleaned",
+                        "FinGPT/fingpt-sentiment-train"]:
         dataset = dataset.map(alpaca_format, remove_columns=['input', 'output'],
                               desc=f"Preprocessing {dataset_name} for unified format.")
     elif dataset_name in ["WizardLM/WizardLM_evol_instruct_70k"]:
@@ -52,14 +55,44 @@ def process_sft_dataset(dataset_name, dataset, dataset_sample):
         dataset = dataset.remove_columns(['instruction'])
         dataset = dataset.rename_column("input", "instruction")
         dataset = dataset.rename_column("output", "response")
+    elif dataset_name in ['mrqa-HotpotQA','mrqa-NaturalQuestionsShort', 'mrqa-NewsQA', 'mrqa-SearchQA', 'mrqa-SQuAD', 'mrqa-TriviaQA-web']:
+        dataset = dataset.map(mrqa_preprocess, remove_columns=['context_tokens', 'question_tokens'])
+        dataset = dataset.rename_column("answers", "response")
+        dataset = dataset.rename_column("question", "instruction")
+    elif dataset_name in ['mrqa']:
+        return process_sft_dataset_collection(dataset_name, dataset, dataset_sample)
     else:
         raise NotImplementedError(f"Dataset {dataset_name} is not supported.")
-    dataset = dataset.shuffle(seed=2023)
+    dataset = dataset.shuffle(seed=2023) if isinstance(dataset, datasets.Dataset) else dataset
     if dataset_sample:
         num_sample = min(len(dataset), dataset_sample)
         dataset = dataset.select(range(num_sample))
     print(f">> ===== After processing, Dataset {dataset_name} has {len(dataset)} examples. =====")
     return dataset
+
+def process_sft_dataset_collection(dataset_name, dataset, dataset_sample):
+    subsets = []
+    if dataset_name in ['mrqa']:
+        dataset = dataset.map(mrqa_preprocess, remove_columns=['context_tokens', 'question_tokens'])
+        dataset = dataset.rename_column("answers", "response")
+        dataset = dataset.rename_column("question", "instruction")
+        subset_names = list(set(dataset['subset']))
+        for name in subset_names:
+            subset = dataset.filter(lambda batch, val=name: [v == val for v in batch["subset"]], batched=True)
+            subset.shuffle(seed=2023)
+            if dataset_sample:
+                num_sample = min(len(subset), dataset_sample)
+                subset = subset.select(range(num_sample))
+            print(f">> ===== After processing, Dataset {name} has {len(subset)} examples. =====")
+            subsets.append(subset)
+    else:
+        raise NotImplementedError(f"Dataset {dataset_name} is not supported.")
+    return subsets
+
+def mrqa_preprocess(example):
+    example["question"] = example["context"] + " " + example['question']
+    example["answers"] = example["answers"][0]
+    return example
 
 
 def alpaca_format(example):
@@ -69,6 +102,7 @@ def alpaca_format(example):
         example["instruction"] = example["instruction"] + " " + example['input']
     example["response"] = example['output']
     return example
+
 
 def process_dpo_dataset(dataset_name, dataset, template_name, dataset_sample):
     if dataset_name in ["Anthropic/hh-rlhf"]:

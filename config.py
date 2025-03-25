@@ -29,6 +29,7 @@ class FedArguments:
 class ScriptArguments:
     model_name_or_path: Optional[str] = field(default="meta-llama/Llama-2-7b-hf", metadata={"help": "the model name"})
     dataset_names: Optional[List[str]] = field(default_factory=list,metadata={"help": "Dataset names for each dataset"})
+    local_dataset: Optional[bool] = field(default=False, metadata={"help": "whether to use local dataset"})
     log_with: Optional[str] = field(default="none", metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=2e-5, metadata={"help": "the learning rate"})    # vicuna and alpaca use 2e-5
     batch_size: Optional[int] = field(default=16, metadata={"help": "the batch size"})
@@ -67,11 +68,10 @@ class ScriptArguments:
     freeze_stage_one: Optional[bool] = field(default=False, metadata={"help": "whether to freeze stage one"})
     stage_one_ckpt: Optional[str] = field(default=None, metadata={"help": "whether to freeze stage one"})
     two_stage_training: Optional[bool] = field(default=False, metadata={"help": "Run two stage training"})
+    separate_lr: Optional[bool] = field(default=False, metadata={"help": "whether to separate learning rate"})
 
 parser = HfArgumentParser((ScriptArguments, FedArguments))
 script_args, fed_args = parser.parse_args_into_dataclasses()
-fed_args.num_datasets = len(script_args.dataset_names)
-fed_args.num_clients = fed_args.num_clients_dataset * len(script_args.dataset_names)
 script_args.dataset_name = ""
 for ds_name in script_args.dataset_names:
     ds_name = os.path.basename(ds_name)
